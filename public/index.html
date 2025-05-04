@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat WebSocket</title>
+  <style>
+    body { font-family: sans-serif; padding: 2em; }
+    #chat { height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 1em; margin-bottom: 1em; }
+    input { width: 80%; padding: 0.5em; }
+  </style>
+</head>
+<body>
+  <h1>Chat in Tempo Reale</h1>
+  <div id="chat"></div>
+  <input id="message" placeholder="Scrivi e premi invio..." autocomplete="off" />
+  <script>
+    const chat = document.getElementById("chat");
+    const input = document.getElementById("message");
+    const socket = new WebSocket("wss://" + window.location.host);
+
+    socket.onmessage = (event) => {
+      const msg = document.createElement("div");
+      msg.textContent = event.data;
+      chat.appendChild(msg);
+      chat.scrollTop = chat.scrollHeight;
+    };
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && input.value.trim()) {
+        socket.send(input.value);
+        input.value = "";
+      }
+    });
+  </script>
+</body>
+</html>
