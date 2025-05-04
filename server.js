@@ -27,5 +27,5 @@ wss.on("connection", (ws) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server in ascolto su http://localhost:${PORT}`);
+  console.log(`Server avviato (porta: ${PORT})`);
 });
