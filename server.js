@@ -55,11 +55,16 @@ async function salvaMessaggio(content) {
 // Invia i messaggi esistenti a un nuovo client
 async function inviaMessaggiStorici(ws) {
   try {
+    // Prendi i 50 messaggi più RECENTI, ma li invia in ordine CRONOLOGICO
     const res = await pool.query(
-      "SELECT content, timestamp FROM messages ORDER BY timestamp ASC LIMIT 50"
+      "SELECT content, timestamp FROM messages ORDER BY timestamp DESC LIMIT 50"
     );
     console.log(`Inviando ${res.rows.length} messaggi storici al nuovo client`);
-    res.rows.forEach((row) => {
+    
+    // Inverti l'array per inviare i messaggi in ordine cronologico (dal più vecchio al più recente)
+    const messaggiOrdinati = res.rows.reverse();
+    
+    messaggiOrdinati.forEach((row) => {
       const msg = {
         content: row.content,
         timestamp: row.timestamp,
