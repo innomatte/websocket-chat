@@ -34,45 +34,37 @@
   <button onclick="sendMessage()">Invia</button>
 
   <script>
-    const socket = new WebSocket(`ws://${location.host}`);
+  const chat = document.getElementById("chat");
+  const input = document.getElementById("message");
 
-    const messagesDiv = document.getElementById("messages");
-    const input = document.getElementById("input");
+  const socket = new WebSocket("wss://" + window.location.host);
 
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        appendMessage(data.content, data.timestamp);
-      } catch (err) {
-        console.error("Errore parsing JSON:", err);
-      }
-    };
-
-    function appendMessage(content, timestamp) {
-      const div = document.createElement("div");
-      div.className = "message";
-
-      const time = new Date(timestamp).toLocaleTimeString("it-IT", {
+  socket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      const content = data.content;
+      const timestamp = new Date(data.timestamp);
+      const timeStr = timestamp.toLocaleTimeString("it-IT", {
         hour: "2-digit",
         minute: "2-digit",
       });
 
-      div.innerHTML = `<span class="timestamp">[${time}]</span> ${content}`;
-      messagesDiv.appendChild(div);
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    }
+      const msg = document.createElement("div");
+      msg.textContent = `[${timeStr}] ${content}`;
+      chat.appendChild(msg);
+      chat.scrollTop = chat.scrollHeight;
 
-    function sendMessage() {
-      const text = input.value.trim();
-      if (text !== "") {
-        socket.send(text);
-        input.value = "";
-      }
+    } catch (err) {
+      console.error("Messaggio non in formato JSON valido:", event.data);
     }
+  };
 
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") sendMessage();
-    });
-  </script>
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && input.value.trim()) {
+      socket.send(input.value);
+      input.value = "";
+    }
+  });
+</script>
 </body>
 </html>
