@@ -13,10 +13,11 @@ wss.on("connection", (ws) => {
 
   ws.on("message", (message) => {
     console.log("Messaggio:", message);
+    const text = message.toString();
     // Invia a tutti
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(message.toString());
+        client.send(text);
       }
     });
   });
