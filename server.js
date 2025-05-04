@@ -30,16 +30,26 @@ async function initDB() {
 }
 initDB();
 
-// Salva un messaggio nel database
+// Salva un messaggio nel database e restituisce il timestamp
 async function salvaMessaggio(content) {
-  await pool.query("INSERT INTO messages (content) VALUES ($1)", [content]);
+  const res = await pool.query(
+    "INSERT INTO messages (content) VALUES ($1) RETURNING timestamp",
+    [content]
+  );
+  return res.rows[0].timestamp;
 }
 
 // Invia i messaggi esistenti a un nuovo client
 async function inviaMessaggiStorici(ws) {
-  const res = await pool.query("SELECT content FROM messages ORDER BY id ASC LIMIT 50");
+  const res = await pool.query(
+    "SELECT content, timestamp FROM messages ORDER BY id ASC LIMIT 50"
+  );
   res.rows.forEach((row) => {
-    ws.send(`[STORICO] ${row.content}`);
+    const msg = {
+      content: row.content,
+      timestamp: row.timestamp,
+    };
+    ws.send(JSON.stringify(msg));
   });
 }
 
@@ -55,12 +65,18 @@ wss.on("connection", (ws) => {
     const text = message.toString();
     console.log("Messaggio:", text);
 
-    await salvaMessaggio(text);
+    const timestamp = await salvaMessaggio(text);
 
-    // Invia il messaggio a tutti i client connessi
+    const payload = {
+      content: text,
+      timestamp: timestamp,
+    };
+
+    const jsonPayload = JSON.stringify(payload);
+
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(text);
+        client.send(jsonPayload);
       }
     });
   });
