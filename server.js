@@ -1,208 +1,143 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Chat WebSocket</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      padding: 20px;
-      max-width: 800px;
-      margin: 0 auto;
-    }
-    #messages {
-      border: 1px solid #ccc;
-      height: 300px;
-      overflow-y: scroll;
-      padding: 10px;
-      margin-bottom: 10px;
-      background-color: #f9f9f9;
-    }
-    .message {
-      margin-bottom: 8px;
-      padding: 5px;
-      border-radius: 4px;
-      background-color: #fff;
-    }
-    .timestamp {
-      color: gray;
-      font-size: 0.85em;
-      margin-right: 5px;
-    }
-    .input-container {
-      display: flex;
-      margin-top: 10px;
-    }
-    #input {
-      flex-grow: 1;
-      padding: 8px;
-      margin-right: 5px;
-    }
-    button {
-      padding: 8px 15px;
-      background-color: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: #45a049;
-    }
-    .status {
-      margin-top: 5px;
-      font-style: italic;
-    }
-    .connection-status {
-      text-align: right;
-      font-size: 0.9em;
-      margin-bottom: 5px;
-    }
-  </style>
-</head>
-<body>
-  <h1>Chat WebSocket</h1>
-  <div class="connection-status" id="connection-status">Connessione...</div>
-  <div id="messages"></div>
-  <div class="input-container">
-    <input id="input" type="text" placeholder="Scrivi un messaggio..." autofocus />
-    <button onclick="sendMessage()">Invia</button>
-  </div>
-  <div class="status" id="status"></div>
-  
-  <script>
-  const messages = document.getElementById("messages");
-  const input = document.getElementById("input");
-  const statusDiv = document.getElementById("status");
-  const connectionStatus = document.getElementById("connection-status");
-  
-  // Funzione per aggiornare lo stato
-  function updateStatus(text, isError = false) {
-    statusDiv.textContent = text;
-    statusDiv.style.color = isError ? "red" : "green";
-    setTimeout(() => {
-      statusDiv.textContent = "";
-    }, 3000);
+const express = require("express");
+const http = require("http");
+const WebSocket = require("ws");
+const { Pool } = require("pg");
+
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+// Serve i file statici dalla cartella 'public'
+app.use(express.static("public"));
+
+// Connessione a PostgreSQL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+});
+
+// Inizializza il database (una sola volta all'avvio)
+async function initDB() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        content TEXT NOT NULL,
+        timestamp TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    console.log("Database inizializzato con successo");
+  } catch (error) {
+    console.error("Errore nell'inizializzazione del database:", error);
   }
+}
+
+initDB();
+
+// Salva un messaggio nel database e restituisce il timestamp
+async function salvaMessaggio(content) {
+  try {
+    console.log("Salvando messaggio nel DB:", content);
+    const res = await pool.query(
+      "INSERT INTO messages (content) VALUES ($1) RETURNING timestamp",
+      [content]
+    );
+    console.log("Messaggio salvato, timestamp:", res.rows[0].timestamp);
+    return res.rows[0].timestamp;
+  } catch (error) {
+    console.error("Errore nel salvare il messaggio:", error);
+    return new Date();
+  }
+}
+
+// Invia i messaggi esistenti a un nuovo client
+async function inviaMessaggiStorici(ws) {
+  try {
+    const res = await pool.query(
+      "SELECT content, timestamp FROM messages ORDER BY timestamp ASC LIMIT 50"
+    );
+    console.log(`Inviando ${res.rows.length} messaggi storici al nuovo client`);
+    res.rows.forEach((row) => {
+      const msg = {
+        content: row.content,
+        timestamp: row.timestamp,
+      };
+      ws.send(JSON.stringify(msg));
+    });
+  } catch (error) {
+    console.error("Errore nel recuperare i messaggi storici:", error);
+  }
+}
+
+// Gestione connessione WebSocket
+wss.on("connection", (ws) => {
+  console.log("Nuovo client connesso");
   
-  // Inizializza la connessione WebSocket
-  function initWebSocket() {
-    const socket = new WebSocket("wss://" + window.location.host);
+  // Invia messaggi precedenti al nuovo client
+  inviaMessaggiStorici(ws);
+  
+  // Gestione nuovi messaggi
+  ws.on("message", async (message) => {
+    let content;
+    let timestamp;
     
-    // Funzione per inviare messaggi
-    window.sendMessage = function() {
-      if (input.value.trim()) {
-        try {
-          // Creare l'oggetto messaggio nel formato corretto
-          const messageObj = {
-            content: input.value,
-            timestamp: new Date().toISOString()
-          };
-          
-          // Debug: mostra cosa stiamo inviando
-          console.log("Invio messaggio:", JSON.stringify(messageObj));
-          
-          // Inviare come stringa JSON
-          socket.send(JSON.stringify(messageObj));
-          
-          // Aggiornare stato
-          updateStatus("Messaggio inviato");
-          
-          // Pulire l'input dopo l'invio
-          input.value = "";
-        } catch (err) {
-          console.error("Errore nell'invio del messaggio:", err);
-          updateStatus("Errore nell'invio del messaggio", true);
-        }
-      }
+    try {
+      // Tenta di analizzare il messaggio come JSON
+      const messageData = JSON.parse(message.toString());
+      console.log("Messaggio ricevuto come JSON:", messageData);
+      
+      // Estrai il contenuto del messaggio
+      content = messageData.content;
+    } catch (error) {
+      // Se il messaggio non è in formato JSON, gestiscilo come testo semplice
+      content = message.toString();
+      console.log("Messaggio ricevuto come testo:", content);
     }
     
-    // Gestione dei messaggi in arrivo
-    socket.onmessage = (event) => {
-      console.log("Messaggio ricevuto:", event.data);
-      try {
-        const data = JSON.parse(event.data);
-        const content = data.content;
-        const timestamp = new Date(data.timestamp);
-        const timeStr = timestamp.toLocaleTimeString("it-IT", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit"
-        });
-        
-        // Creare elemento messaggio
-        const msg = document.createElement("div");
-        msg.className = "message";
-        
-        // Aggiungere timestamp e contenuto
-        const timeSpan = document.createElement("span");
-        timeSpan.className = "timestamp";
-        timeSpan.textContent = `[${timeStr}] `;
-        
-        msg.appendChild(timeSpan);
-        msg.appendChild(document.createTextNode(content));
-        
-        // Aggiungere al contenitore messaggi e scorrere in basso
-        messages.appendChild(msg);
-        messages.scrollTop = messages.scrollHeight;
-      } catch (err) {
-        console.error("Errore nel parsing del messaggio:", err, event.data);
-        updateStatus("Errore nella ricezione del messaggio", true);
-      }
+    // Salva nel database e ottieni il timestamp effettivo (indipendentemente dal formato originale)
+    timestamp = await salvaMessaggio(content);
+    
+    // Prepara il payload di risposta
+    const payload = {
+      content: content,
+      timestamp: timestamp,
     };
     
-    // Gestire invio con tasto Enter
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        sendMessage();
+    // Invia a tutti i client connessi
+    const jsonPayload = JSON.stringify(payload);
+    console.log("Inviando a tutti i client:", jsonPayload);
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(jsonPayload);
       }
     });
-    
-    // Gestione degli eventi di connessione
-    socket.onopen = () => {
-      const statusMsg = document.createElement("div");
-      statusMsg.textContent = "Connesso al server";
-      statusMsg.style.color = "green";
-      statusMsg.className = "status";
-      messages.appendChild(statusMsg);
-      connectionStatus.textContent = "Connesso";
-      connectionStatus.style.color = "green";
-    };
-    
-    socket.onerror = (error) => {
-      const statusMsg = document.createElement("div");
-      statusMsg.textContent = "Errore di connessione";
-      statusMsg.style.color = "red";
-      statusMsg.className = "status";
-      messages.appendChild(statusMsg);
-      connectionStatus.textContent = "Errore";
-      connectionStatus.style.color = "red";
-      console.error("Errore WebSocket:", error);
-    };
-    
-    socket.onclose = (event) => {
-      const statusMsg = document.createElement("div");
-      statusMsg.textContent = `Disconnesso dal server (Codice: ${event.code})`;
-      statusMsg.style.color = "orange";
-      statusMsg.className = "status";
-      messages.appendChild(statusMsg);
-      connectionStatus.textContent = "Disconnesso";
-      connectionStatus.style.color = "orange";
-      
-      // Riprova a connettersi dopo 5 secondi
-      setTimeout(() => {
-        connectionStatus.textContent = "Riconnessione...";
-        connectionStatus.style.color = "blue";
-        initWebSocket();
-      }, 5000);
-    };
-    
-    return socket;
-  }
+  });
   
-  // Inizializza la connessione
-  initWebSocket();
-  </script>
-</body>
-</html>
+  ws.on("close", () => {
+    console.log("Client disconnesso");
+  });
+  
+  // Gestione errori di connessione
+  ws.on("error", (error) => {
+    console.error("Errore WebSocket:", error);
+  });
+});
+
+// Aggiunta di un endpoint per verificare lo stato del database
+app.get("/api/messages", async (req, res) => {
+  try {
+    const dbRes = await pool.query("SELECT * FROM messages ORDER BY timestamp DESC LIMIT 10");
+    res.json(dbRes.rows);
+  } catch (err) {
+    console.error("Errore nella query API:", err);
+    res.status(500).json({ error: "Errore database" });
+  }
+});
+
+// Avvio del server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server avviato sulla porta ${PORT}`);
+});
