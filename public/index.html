@@ -40,24 +40,26 @@
   const socket = new WebSocket("wss://" + window.location.host);
 
   socket.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      const content = data.content;
-      const timestamp = new Date(data.timestamp);
-      const timeStr = timestamp.toLocaleTimeString("it-IT", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+  console.log("Messaggio ricevuto:", event.data);
+  try {
+    const data = JSON.parse(event.data);
+    const content = data.content;
+    const timestamp = new Date(data.timestamp);
+    const timeStr = timestamp.toLocaleTimeString("it-IT", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 
-      const msg = document.createElement("div");
-      msg.textContent = `[${timeStr}] ${content}`;
-      chat.appendChild(msg);
-      chat.scrollTop = chat.scrollHeight;
+    const msg = document.createElement("div");
+    msg.textContent = `[${timeStr}] ${content}`;
+    chat.appendChild(msg);
+    chat.scrollTop = chat.scrollHeight;
 
-    } catch (err) {
-      console.error("Messaggio non in formato JSON valido:", event.data);
-    }
-  };
+  } catch (err) {
+    console.error("Messaggio non in formato JSON valido:", event.data);
+  }
+};
+
 
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && input.value.trim()) {
